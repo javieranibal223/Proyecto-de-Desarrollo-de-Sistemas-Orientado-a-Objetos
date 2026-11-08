@@ -1,0 +1,20 @@
+@startuml caso_de_uso_general
+title Diagrama de casos de uso general - Centro Odontológico
+left to right direction
+
+actor "Recepcionista" as R
+
+rectangle "Sistema de Gestión - Centro Odontológico" {
+  usecase "Gestionar pacientes\n(alta, consulta, modificación, baja)" as UC1
+  usecase "Exportar listado de pacientes a PDF" as UC2
+  usecase "Gestionar odontólogos\n(alta, modificación, baja)" as UC3
+  usecase "Gestionar turnos\n(alta, modificación, baja)" as UC4
+  usecase "Seleccionar paciente y odontólogo" as UC5
+}
+
+R --> UC1
+R --> UC2
+R --> UC3
+R --> UC4
+UC4 ..> UC5 : <<include>>
+@enduml

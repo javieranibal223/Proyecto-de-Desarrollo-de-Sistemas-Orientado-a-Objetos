@@ -1,0 +1,42 @@
+@startuml secuencia_registrar_turno
+title Diagrama de secuencia - Registrar un turno
+
+actor "Recepcionista" as R
+participant "TurnoVista" as V
+participant "TurnoControlador" as C
+participant "PacienteDaoJdbc" as PD
+participant "OdontologoDaoJdbc" as OD
+participant "TurnoDaoJdbc" as TD
+database "MySQL" as DB
+
+R -> V: Selecciona paciente y odontólogo, ingresa fecha, hora y motivo
+R -> V: Pulsa "Guardar"
+V -> C: guardar(paciente, odontologo, fechaTexto, motivo)
+C -> C: construir Turno (parseo de fecha y validar())
+C -> C: validarFuturo()
+C -> TD: guardar(turno)
+TD -> DB: INSERT INTO turnos (...)
+DB --> TD: ID generado
+TD --> C: turno con ID
+C -> V: limpiarFormulario()
+C -> V: mostrarMensaje("Turno registrado")
+C -> TD: buscarTodos()
+TD -> DB: SELECT ... JOIN pacientes JOIN odontologos
+DB --> TD: filas
+TD --> C: List<Turno>
+C -> V: mostrarTurnos(lista)
+V --> R: Tabla actualizada
+
+note over C
+  Ante un error de validación o de base de datos
+  (por ejemplo, odontólogo ocupado en ese horario),
+  el controlador llama a V.mostrarError(mensaje)
+  y no modifica la tabla.
+end note
+
+note over V
+  Los combos de pacientes y odontólogos se cargan
+  al abrir la pantalla mediante cargarDatos(),
+  usando PacienteDaoJdbc y OdontologoDaoJdbc.
+end note
+@enduml

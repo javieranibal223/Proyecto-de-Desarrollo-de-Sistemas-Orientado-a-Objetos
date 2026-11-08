@@ -1,125 +1,131 @@
 package dao.impl;
 
-import dao.IDao;
+import config.ConexionMySQL;
+import dao.PacienteDao;
+import exception.DaoException;
 import model.Paciente;
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.Date;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.SQLIntegrityConstraintViolationException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
-public class PacienteDaoJdbc implements IDao<Paciente> {
-    
-    // Configura tu URL, usuario y contraseña según tu base de datos (ej. H2 o MySQL)
-    private static final String DB_URL = "jdbc:h2:~/centro_odontologico;INIT=RUNSCRIPT FROM 'create.sql'";
-    private static final String USER = "sa";
-    private static final String PASS = "";
+/**
+ * Implementación JDBC de {@link PacienteDao} sobre la tabla {@code pacientes} de MySQL.
+ * <p>
+ * Cada método abre su conexión con try-with-resources, así Connection,
+ * PreparedStatement y ResultSet siempre se cierran. Los errores SQL no se
+ * silencian: se envuelven en {@link DaoException} y se propagan al controlador.
+ */
+public class PacienteDaoJdbc implements PacienteDao {
 
+    private static final String SELECT_BASE = "SELECT id, nombre, apellido, dni, fecha_ingreso FROM pacientes";
+    private static final String INSERT = "INSERT INTO pacientes (nombre, apellido, dni, fecha_ingreso) VALUES (?, ?, ?, ?)";
+    private static final String UPDATE = "UPDATE pacientes SET nombre = ?, apellido = ?, dni = ?, fecha_ingreso = ? WHERE id = ?";
+    private static final String DELETE = "DELETE FROM pacientes WHERE id = ?";
+    private static final String BY_ID = SELECT_BASE + " WHERE id = ?";
+    private static final String BY_DNI = SELECT_BASE + " WHERE dni = ?";
+    private static final String ALL = SELECT_BASE + " ORDER BY apellido, nombre";
+
+    /** {@inheritDoc} */
     @Override
-    public Paciente guardar(Paciente paciente) {
-        String query = "INSERT INTO pacientes (nombre, apellido, dni, fecha_ingreso) VALUES (?, ?, ?, ?)";
-        
-        // try-with-resources: Inicializa Connection y PreparedStatement aquí
-        try (Connection connection = DriverManager.getConnection(DB_URL, USER, PASS);
-             PreparedStatement ps = connection.prepareStatement(query, Statement.RETURN_GENERATED_KEYS)) {
-            
-            ps.setString(1, paciente.getNombre());
-            ps.setString(2, paciente.getApellido());
-            ps.setString(3, paciente.getDni());
-            ps.setDate(4, Date.valueOf(paciente.getFechaIngreso())); // Suponiendo LocalDate
-            
+    public Paciente guardar(Paciente paciente) throws DaoException {
+        try (Connection con = ConexionMySQL.obtener();
+             PreparedStatement ps = con.prepareStatement(INSERT, Statement.RETURN_GENERATED_KEYS)) {
+            cargarParametros(ps, paciente);
             ps.executeUpdate();
-            
-            try (ResultSet rs = ps.getGeneratedKeys()) {
-                if (rs.next()) {
-                    paciente.setId(rs.getInt(1));
+            try (ResultSet claves = ps.getGeneratedKeys()) {
+                if (claves.next()) {
+                    paciente.setId(claves.getInt(1));
                 }
             }
+            return paciente;
         } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return paciente;
-    }
-
-    @Override
-    public Paciente buscar(Integer id) {
-        Paciente paciente = null;
-        String query = "SELECT * FROM pacientes WHERE id = ?";
-        
-        try (Connection connection = DriverManager.getConnection(DB_URL, USER, PASS);
-             PreparedStatement ps = connection.prepareStatement(query)) {
-             
-            ps.setInt(1, id);
-            
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    paciente = new Paciente();
-                    paciente.setId(rs.getInt("id"));
-                    paciente.setNombre(rs.getString("nombre"));
-                    paciente.setApellido(rs.getString("apellido"));
-                    paciente.setDni(rs.getString("dni"));
-                    paciente.setFechaIngreso(rs.getDate("fecha_ingreso").toLocalDate());
-                }
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return paciente;
-    }
-
-    @Override
-    public Paciente actualizar(Paciente paciente) {
-        String query = "UPDATE pacientes SET nombre = ?, apellido = ?, dni = ?, fecha_ingreso = ? WHERE id = ?";
-        
-        try (Connection connection = DriverManager.getConnection(DB_URL, USER, PASS);
-             PreparedStatement ps = connection.prepareStatement(query)) {
-             
-            ps.setString(1, paciente.getNombre());
-            ps.setString(2, paciente.getApellido());
-            ps.setString(3, paciente.getDni());
-            ps.setDate(4, Date.valueOf(paciente.getFechaIngreso()));
-            ps.setInt(5, paciente.getId());
-            
-            ps.executeUpdate();
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return paciente;
-    }
-
-    @Override
-    public void eliminar(Integer id) {
-        String query = "DELETE FROM pacientes WHERE id = ?";
-        
-        try (Connection connection = DriverManager.getConnection(DB_URL, USER, PASS);
-             PreparedStatement ps = connection.prepareStatement(query)) {
-             
-            ps.setInt(1, id);
-            ps.executeUpdate();
-        } catch (SQLException e) {
-            e.printStackTrace();
+            throw new DaoException("No se pudo guardar el paciente en la base de datos.", e);
         }
     }
 
+    /** {@inheritDoc} */
     @Override
-    public List<Paciente> buscarTodos() {
+    public Optional<Paciente> buscarPorId(Integer id) throws DaoException {
+        return buscarUno(BY_ID, id);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public Optional<Paciente> buscarPorDni(String dni) throws DaoException {
+        return buscarUno(BY_DNI, dni);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public List<Paciente> buscarTodos() throws DaoException {
         List<Paciente> pacientes = new ArrayList<>();
-        String query = "SELECT * FROM pacientes";
-        
-        try (Connection connection = DriverManager.getConnection(DB_URL, USER, PASS);
-             PreparedStatement ps = connection.prepareStatement(query);
+        try (Connection con = ConexionMySQL.obtener();
+             PreparedStatement ps = con.prepareStatement(ALL);
              ResultSet rs = ps.executeQuery()) {
-             
             while (rs.next()) {
-                Paciente p = new Paciente();
-                p.setId(rs.getInt("id"));
-                p.setNombre(rs.getString("nombre"));
-                p.setApellido(rs.getString("apellido"));
-                p.setDni(rs.getString("dni"));
-                p.setFechaIngreso(rs.getDate("fecha_ingreso").toLocalDate());
-                pacientes.add(p);
+                pacientes.add(mapear(rs));
+            }
+            return pacientes;
+        } catch (SQLException e) {
+            throw new DaoException("No se pudo obtener el listado de pacientes.", e);
+        }
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public boolean actualizar(Paciente paciente) throws DaoException {
+        try (Connection con = ConexionMySQL.obtener();
+             PreparedStatement ps = con.prepareStatement(UPDATE)) {
+            cargarParametros(ps, paciente);
+            ps.setInt(5, paciente.getId());
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            throw new DaoException("No se pudo actualizar el paciente.", e);
+        }
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public boolean eliminar(Integer id) throws DaoException {
+        try (Connection con = ConexionMySQL.obtener();
+             PreparedStatement ps = con.prepareStatement(DELETE)) {
+            ps.setInt(1, id);
+            return ps.executeUpdate() > 0;
+        } catch (SQLIntegrityConstraintViolationException e) {
+            throw new DaoException("No se puede eliminar el paciente porque tiene turnos asociados.", e);
+        } catch (SQLException e) {
+            throw new DaoException("No se pudo eliminar el paciente.", e);
+        }
+    }
+
+    private Optional<Paciente> buscarUno(String sql, Object parametro) throws DaoException {
+        try (Connection con = ConexionMySQL.obtener();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setObject(1, parametro);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Optional.of(mapear(rs)) : Optional.empty();
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            throw new DaoException("No se pudo consultar el paciente.", e);
         }
-        return pacientes;
+    }
+
+    private void cargarParametros(PreparedStatement ps, Paciente p) throws SQLException {
+        ps.setString(1, p.getNombre());
+        ps.setString(2, p.getApellido());
+        ps.setString(3, p.getDni());
+        ps.setDate(4, Date.valueOf(p.getFechaIngreso()));
+    }
+
+    private Paciente mapear(ResultSet rs) throws SQLException {
+        return new Paciente(rs.getInt("id"), rs.getString("nombre"), rs.getString("apellido"),
+                rs.getString("dni"), rs.getDate("fecha_ingreso").toLocalDate());
     }
 }
